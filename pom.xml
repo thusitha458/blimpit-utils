@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.blimpit.utils</groupId>
+    <artifactId>blimpit-utils</artifactId>
+    <packaging>pom</packaging>
+    <version>1.0-SNAPSHOT</version>
+    <modules>
+        <module>modules/loghandler</module>
+        <module>modules/emailhandler</module>
+        <module>modules/printhandler</module>
+        <module>modules/dbconnectors/mysqlconnector</module>
+    </modules>
+
+
+    <properties>
+        <slf4j.version>1.7.25</slf4j.version>
+        <mysql.version>8.0.11</mysql.version>
+    </properties>
+
+</project>
