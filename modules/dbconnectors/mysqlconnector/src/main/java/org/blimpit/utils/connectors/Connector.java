@@ -1,5 +1,7 @@
 package org.blimpit.utils.connectors;
 
+import org.blimpit.utils.connectors.mysql.Record;
+
 import java.util.Map;
 
 /**
@@ -18,4 +20,10 @@ public interface Connector {
     boolean insert(String collectionName, Map<String, String> recordMap);
 
 
+    /**
+     * Returns records of the table
+     * @param table Table Name
+     * @return Record
+     */
+    Record[]  read(String table);
 }
