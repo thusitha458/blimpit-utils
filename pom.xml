@@ -13,6 +13,7 @@
         <module>modules/emailhandler</module>
         <module>modules/printhandler</module>
         <module>modules/dbconnectors/mysqlconnector</module>
+        <module>modules/filehandler</module>
     </modules>
 
 
