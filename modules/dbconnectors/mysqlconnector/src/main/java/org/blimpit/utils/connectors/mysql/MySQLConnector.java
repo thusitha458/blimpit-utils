@@ -28,8 +28,9 @@ public class MySQLConnector implements Connector {
      * @param username username of the DB
      * @param password password of the DB
      * @return MySQLConnector
+     *
      */
-    public static Connector getMySQLConnector(String ip, String port, String dbName,
+    public static Connector getInstance(String ip, String port, String dbName,
                                               String username, String password) {
         if (mySQLConnector == null) {
             synchronized (MySQLConnector.class) {
@@ -43,6 +44,10 @@ public class MySQLConnector implements Connector {
 
     public boolean insert(String collectionName, Map<String, String> recordMap) {
         return false;
+    }
+
+    public Record[] read(String table) {
+        return new Record[0];
     }
 
 
