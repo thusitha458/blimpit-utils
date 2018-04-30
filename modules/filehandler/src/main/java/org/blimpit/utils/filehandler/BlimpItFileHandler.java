@@ -24,6 +24,7 @@ public class BlimpItFileHandler implements FileHandler{
 
     private static  volatile  BlimpItFileHandler blimpItFileHandler;
 
+    public static final String FILE_UPLOAD_MULTIPART_NAME = "file";
 
     private BlimpItFileHandler(){
 
@@ -36,7 +37,7 @@ public class BlimpItFileHandler implements FileHandler{
              CloseableHttpClient httpClient = HttpClientBuilder.create().build()){
             HttpPost postRequest = new HttpPost(serviceURL);
             HttpEntity entity = MultipartEntityBuilder.create()
-                    .addPart("file", new InputStreamBody(fileInputStream, inFile.getName()))
+                    .addPart(FILE_UPLOAD_MULTIPART_NAME, new InputStreamBody(fileInputStream, inFile.getName()))
                     .build();
             postRequest.setEntity(entity);
             HttpResponse response = httpClient.execute(postRequest);
