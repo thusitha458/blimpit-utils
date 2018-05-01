@@ -6,10 +6,17 @@ import com.github.tomakehurst.wiremock.http.RequestMethod;
 import com.github.tomakehurst.wiremock.junit.WireMockRule;
 import com.github.tomakehurst.wiremock.matching.ContainsPattern;
 import com.github.tomakehurst.wiremock.matching.MatchResult;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockftpserver.fake.FakeFtpServer;
+import org.mockftpserver.fake.UserAccount;
+import org.mockftpserver.fake.filesystem.DirectoryEntry;
+import org.mockftpserver.fake.filesystem.FileEntry;
+import org.mockftpserver.fake.filesystem.FileSystem;
+import org.mockftpserver.fake.filesystem.WindowsFakeFileSystem;
 
 import java.io.File;
 import java.io.IOException;
@@ -25,10 +32,13 @@ public class BlimpItFileHandlerTest {
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
-    private final String HTTP_FILE_UPLOAD_URL = "http://localhost:8080/upload";
-    private final String HTTP_FILE_DOWNLOAD_URL = "http://localhost:8080/download";
+    private static final String HTTP_FILE_UPLOAD_URL = "http://localhost:8080/upload";
+    private static final String HTTP_FILE_DOWNLOAD_URL = "http://localhost:8080/download";
+    private static final String FTP_FILE_UPLOAD_URL = "ftp://user:password@localhost:21/uploadedFile.txt";
+    private static final String FTP_FILE_DOWNLOAD_URL = "ftp://user:password@localhost:21/fileToDownload.txt";
 
     private FileHandler fileHandler;
+    private FakeFtpServer fakeFtpServer;
     private String uploadFilePath;
     private String copyFilePath;
     private String downloadedFilePath;
@@ -41,6 +51,21 @@ public class BlimpItFileHandlerTest {
         copyFilePath = temporaryFolder.newFile("fileToCopy.txt").getAbsolutePath();
         downloadedFilePath = temporaryFolder.newFolder().getAbsolutePath() + File.separator + "downloaded.txt";
         pathForTheCopiedFile = temporaryFolder.newFolder().getAbsolutePath() + File.separator + "copiedFile.txt";
+
+        fakeFtpServer = new FakeFtpServer();
+        fakeFtpServer.addUserAccount(new UserAccount("user", "password", "c:\\data"));
+
+        FileSystem fileSystem = new WindowsFakeFileSystem();
+        fileSystem.add(new DirectoryEntry("c:\\data"));
+        fileSystem.add(new FileEntry("c:\\data\\fileToDownload.txt", "abcdef 1234567890"));
+        fakeFtpServer.setFileSystem(fileSystem);
+
+        fakeFtpServer.start();
+    }
+
+    @After
+    public void tearDown() {
+        fakeFtpServer.stop();
     }
 
     @Test
@@ -49,7 +74,7 @@ public class BlimpItFileHandlerTest {
             boolean isCorrectUrl = request.getUrl().equals("/upload");
             boolean isPostRequest = request.getMethod().equals(RequestMethod.POST);
             boolean isMultipart = request.isMultipart();
-            Request.Part part = request.getPart(BlimpItFileHandler.FILE_UPLOAD_MULTIPART_NAME);
+            Request.Part part = request.getPart(BlimpItFileHandler.FILE_UPLOAD_DEFAULT_MULTIPART_NAME);
             boolean bodyExists = part.getBody().isPresent();
             boolean uploadedFileExists = part.getHeader("content-disposition")
                     .hasValueMatching(new ContainsPattern("uploadFile.txt"));
@@ -74,12 +99,12 @@ public class BlimpItFileHandlerTest {
         assertFalse(success);
     }
 
-    //    @Test
+    @Test
     public void receivesFaultWhenUploadingFileToRestService() {
-        // TODO: Make this test pass - set timeout
         stubFor(post(urlEqualTo("/upload"))
                 .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
-        boolean success = fileHandler.uploadFileToService(uploadFilePath, HTTP_FILE_UPLOAD_URL);
+        boolean success = fileHandler.uploadFileToService(uploadFilePath, HTTP_FILE_UPLOAD_URL,
+                1000, BlimpItFileHandler.FILE_UPLOAD_DEFAULT_MULTIPART_NAME);
         assertFalse(success);
     }
 
@@ -90,11 +115,10 @@ public class BlimpItFileHandlerTest {
         boolean success = fileHandler.downloadFileFromRemoteService(HTTP_FILE_DOWNLOAD_URL, downloadedFilePath);
         assertTrue(success);
         assertTrue(new File(downloadedFilePath).exists());
-
     }
 
     @Test
-    public void receivedWrongStatusWhenDownloadingFileFromRestService() throws IOException {
+    public void receivedWrongStatusWhenDownloadingFileFromRestService() {
         stubFor(get(urlEqualTo("/download")).willReturn(aResponse().withStatus(500)));
         boolean success = fileHandler.downloadFileFromRemoteService(HTTP_FILE_DOWNLOAD_URL, downloadedFilePath);
         assertFalse(success);
@@ -111,18 +135,17 @@ public class BlimpItFileHandlerTest {
         assertFalse(new File(invalidFilePath).exists());
     }
 
-    //    @Test
-    public void receivesFaultWhenDownloadingFileFromRestService() throws IOException {
-        //TODO: make this test pass - set timeout
+    @Test
+    public void receivesFaultWhenDownloadingFileFromRestService() {
         stubFor(get(urlEqualTo("/download"))
                 .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
-        boolean success = fileHandler.downloadFileFromRemoteService(HTTP_FILE_DOWNLOAD_URL, downloadedFilePath);
+        boolean success = fileHandler.downloadFileFromRemoteService(HTTP_FILE_DOWNLOAD_URL, downloadedFilePath, 1000);
         assertFalse(success);
         assertFalse(new File(downloadedFilePath).exists());
     }
 
     @Test
-    public void copiesFileToNewLocation() throws IOException {
+    public void copiesFileToNewLocation() {
         boolean success = fileHandler.copyFile(copyFilePath, pathForTheCopiedFile);
         assertTrue(success);
         assertTrue(new File(pathForTheCopiedFile).exists());
@@ -149,5 +172,57 @@ public class BlimpItFileHandlerTest {
         boolean success = fileHandler.uploadFileToLocalDst(fileWhichCannotBeFound, pathForTheCopiedFile);
         assertFalse(success);
         assertFalse(new File(pathForTheCopiedFile).exists());
+    }
+
+    @Test
+    public void uploadsFileToFtpServer() {
+        boolean success = fileHandler.uploadFileToaRemoteServer(uploadFilePath, FTP_FILE_UPLOAD_URL);
+        assertTrue(success);
+        assertTrue(fakeFtpServer.getFileSystem().exists("c:\\data\\uploadedFile.txt"));
+    }
+
+    @Test
+    public void cannotFindFileWhenUploadingFileToFtpServer() {
+        boolean success = fileHandler.uploadFileToaRemoteServer("non_existing_file", FTP_FILE_UPLOAD_URL);
+        assertFalse(success);
+    }
+
+    @Test
+    public void invalidUserInfoWhenUploadingFileToFtpServer() {
+        boolean success =
+                fileHandler.uploadFileToaRemoteServer(uploadFilePath, "ftp://user:wrong_password@localhost:21/uploadedFile.txt");
+        assertFalse(success);
+    }
+
+    @Test
+    public void downloadsFileFromFtpServer() {
+        boolean success =
+                fileHandler.downloadFileFromRemoteServer(FTP_FILE_DOWNLOAD_URL, downloadedFilePath);
+        assertTrue(success);
+        assertTrue(new File(downloadedFilePath).exists());
+    }
+
+    @Test
+    public void invalidFileWhenDownloadingFileFromFtpServer() {
+        boolean success =
+                fileHandler.downloadFileFromRemoteServer("ftp://user:password@localhost:21/invalid_file.txt", downloadedFilePath);
+        assertFalse(success);
+        assertFalse(new File(downloadedFilePath).exists());
+    }
+
+    @Test
+    public void invalidLocalPathWhenDownloadingFileFromFtpServer() {
+        boolean success =
+                fileHandler.downloadFileFromRemoteServer(FTP_FILE_DOWNLOAD_URL, ":");
+        assertFalse(success);
+        assertFalse(new File(downloadedFilePath).exists());
+    }
+
+    @Test
+    public void invalidUserInfoWhenDownloadingFileFromFtpServer() {
+        boolean success =
+                fileHandler.downloadFileFromRemoteServer("ftp://user:wrong_password@localhost:21/fileToBeDownloaded.txt", downloadedFilePath);
+        assertFalse(success);
+        assertFalse(new File(downloadedFilePath).exists());
     }
 }

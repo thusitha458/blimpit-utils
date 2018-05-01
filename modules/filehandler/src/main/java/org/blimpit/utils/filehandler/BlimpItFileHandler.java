@@ -5,6 +5,7 @@ import org.apache.commons.net.ftp.FTPClient;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.mime.MultipartEntityBuilder;
@@ -15,6 +16,7 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import java.io.*;
 import java.net.URL;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 
 /**
@@ -24,7 +26,8 @@ public class BlimpItFileHandler implements FileHandler{
 
     private static  volatile  BlimpItFileHandler blimpItFileHandler;
 
-    public static final String FILE_UPLOAD_MULTIPART_NAME = "file";
+    public static final String FILE_UPLOAD_DEFAULT_MULTIPART_NAME = "file";
+    public static final int HTTP_SYSTEM_DEFAULT_TIMEOUT = -1;
 
     private BlimpItFileHandler(){
 
@@ -32,12 +35,18 @@ public class BlimpItFileHandler implements FileHandler{
 
     @Override
     public boolean uploadFileToService(String sourcePath, String serviceURL) {
+        return uploadFileToService(sourcePath, serviceURL, HTTP_SYSTEM_DEFAULT_TIMEOUT, FILE_UPLOAD_DEFAULT_MULTIPART_NAME);
+    }
+
+    @Override
+    public boolean uploadFileToService(String sourcePath, String serviceURL, int timeoutInMS, String multipartName) {
         File inFile = new File(sourcePath);
         try (FileInputStream fileInputStream = new FileInputStream(inFile);
              CloseableHttpClient httpClient = HttpClientBuilder.create().build()){
             HttpPost postRequest = new HttpPost(serviceURL);
+            postRequest.setConfig(getRequestConfigWithTimeouts(timeoutInMS, timeoutInMS, timeoutInMS));
             HttpEntity entity = MultipartEntityBuilder.create()
-                    .addPart(FILE_UPLOAD_MULTIPART_NAME, new InputStreamBody(fileInputStream, inFile.getName()))
+                    .addPart(multipartName, new InputStreamBody(fileInputStream, inFile.getName()))
                     .build();
             postRequest.setEntity(entity);
             HttpResponse response = httpClient.execute(postRequest);
@@ -75,8 +84,14 @@ public class BlimpItFileHandler implements FileHandler{
 
     @Override
     public boolean downloadFileFromRemoteService(String downloadServiceURL, String localPath) {
+        return downloadFileFromRemoteService(downloadServiceURL, localPath, HTTP_SYSTEM_DEFAULT_TIMEOUT);
+    }
+
+    @Override
+    public boolean downloadFileFromRemoteService(String downloadServiceURL, String localPath, int timeoutInMS) {
         try (CloseableHttpClient httpClient = HttpClientBuilder.create().build()) {
             HttpGet getRequest = new HttpGet(downloadServiceURL);
+            getRequest.setConfig(getRequestConfigWithTimeouts(timeoutInMS, timeoutInMS, timeoutInMS));
             HttpResponse response = httpClient.execute(getRequest);
             if (response.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
                 InputStream inputStream = response.getEntity().getContent();
@@ -112,14 +127,30 @@ public class BlimpItFileHandler implements FileHandler{
         try (FileOutputStream fileOutputStream = new FileOutputStream(localPath)){
             URL url = new URL(remoteLocation);
             connectAndLoginToFTPServer(ftpClient, url);
-            return ftpClient.retrieveFile(url.getFile(), fileOutputStream);
+            if(ftpClient.retrieveFile(url.getFile(), fileOutputStream)) {
+                return true;
+            }
         } catch (IOException e) {
             // TODO: log errors instead of printing stack trace
             e.printStackTrace();
         } finally {
             logoutAndDisconnectFromFTPServer(ftpClient);
         }
+        deleteLocalFile(localPath);
         return false;
+    }
+
+    /**
+     * Deletes local file, if it exists
+     * @param localPath
+     */
+    private void deleteLocalFile(String localPath) {
+        try {
+            Files.delete(Paths.get(localPath));
+        } catch (Exception e) {
+            // TODO: log errors instead of printing stack trace
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -149,6 +180,22 @@ public class BlimpItFileHandler implements FileHandler{
             // TODO: log errors instead of printing stack trace
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Returns a request config with timeouts set.
+     * @param connectionTimeoutInMS Determines the timeout in milliseconds until a connection is established
+     * @param socketTimeoutInMS Defines the socket timeout in milliseconds, which is the timeout for waiting for data or,
+     *                          put differently, a maximum period inactivity between two consecutive data packets).
+     * @param connectionManagerTimeoutInMS Returns the timeout in milliseconds used when requesting a connection from the connection manager.
+     * @return
+     */
+    private RequestConfig getRequestConfigWithTimeouts(int connectionTimeoutInMS, int socketTimeoutInMS, int connectionManagerTimeoutInMS) {
+        return RequestConfig.custom()
+                .setConnectTimeout(connectionTimeoutInMS)
+                .setSocketTimeout(socketTimeoutInMS)
+                .setConnectionRequestTimeout(connectionManagerTimeoutInMS)
+                .build();
     }
 
     /**
